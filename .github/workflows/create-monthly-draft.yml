@@ -16,9 +16,6 @@ on:
 
 run-name: "${{ github.event.inputs.year != '' && github.event.inputs.month != '' && format('{0}年{1}月 下書き作成', github.event.inputs.year, github.event.inputs.month) || '月次下書き作成' }}"
 
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-
 permissions:
   contents: read
 
@@ -26,7 +23,7 @@ jobs:
   create-drafts:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Set date variables
         id: date
