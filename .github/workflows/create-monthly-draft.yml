@@ -3,7 +3,18 @@ name: Create Monthly Draft Items
 on:
   schedule:
     - cron: '0 0 1 * *'  # 毎月1日 00:00 UTC
-  workflow_dispatch:      # 手動実行も可能
+  workflow_dispatch:
+    inputs:
+      year:
+        description: '対象年 (例: 2026) ※空欄で当月'
+        required: false
+        default: ''
+      month:
+        description: '対象月 (例: 6) ※空欄で当月'
+        required: false
+        default: ''
+
+run-name: "${{ github.event.inputs.year != '' && github.event.inputs.month != '' && format('{0}年{1}月 下書き作成', github.event.inputs.year, github.event.inputs.month) || '月次下書き作成' }}"
 
 permissions:
   contents: read
@@ -17,9 +28,18 @@ jobs:
       - name: Set date variables
         id: date
         run: |
-          echo "year=$(date +'%Y')"  >> "$GITHUB_OUTPUT"
-          echo "month=$(date +'%m')" >> "$GITHUB_OUTPUT"
-          echo "month_ja=$(date +'%-m')" >> "$GITHUB_OUTPUT"
+          if [ -n "${{ github.event.inputs.year }}" ] && [ -n "${{ github.event.inputs.month }}" ]; then
+            year="${{ github.event.inputs.year }}"
+            month=$(printf '%02d' "${{ github.event.inputs.month }}")
+            month_ja="${{ github.event.inputs.month }}"
+          else
+            year=$(date +'%Y')
+            month=$(date +'%m')
+            month_ja=$(date +'%-m')
+          fi
+          echo "year=$year"       >> "$GITHUB_OUTPUT"
+          echo "month=$month"     >> "$GITHUB_OUTPUT"
+          echo "month_ja=$month_ja" >> "$GITHUB_OUTPUT"
 
       - name: Get project node ID
         id: project
