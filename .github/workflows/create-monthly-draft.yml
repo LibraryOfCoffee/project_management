@@ -1,0 +1,74 @@
+name: Create Monthly Draft Items
+
+on:
+  schedule:
+    - cron: '0 0 1 * *'  # 毎月1日 00:00 UTC
+  workflow_dispatch:      # 手動実行も可能
+
+permissions:
+  contents: read
+
+jobs:
+  create-drafts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set date variables
+        id: date
+        run: |
+          echo "year=$(date +'%Y')"  >> "$GITHUB_OUTPUT"
+          echo "month=$(date +'%m')" >> "$GITHUB_OUTPUT"
+          echo "month_ja=$(date +'%-m')" >> "$GITHUB_OUTPUT"
+
+      - name: Get project node ID
+        id: project
+        env:
+          GH_TOKEN: ${{ secrets.PROJECT_TOKEN }}
+        run: |
+          project_id=$(gh api graphql -f query='
+            query {
+              organization(login: "LibraryOfCoffee") {
+                projectV2(number: 1) {
+                  id
+                }
+              }
+            }
+          ' --jq '.data.organization.projectV2.id')
+          echo "id=$project_id" >> "$GITHUB_OUTPUT"
+
+      - name: Create draft items from templates
+        env:
+          GH_TOKEN: ${{ secrets.PROJECT_TOKEN }}
+          PROJECT_ID: ${{ steps.project.outputs.id }}
+          YEAR: ${{ steps.date.outputs.year }}
+          MONTH: ${{ steps.date.outputs.month }}
+          MONTH_JA: ${{ steps.date.outputs.month_ja }}
+        run: |
+          for template in templates/*.md; do
+            [ -f "$template" ] || continue
+
+            # フロントマター (--- ... ---) からタイトルを取得
+            raw_title=$(sed -n '/^---$/,/^---$/{ /^title:/{ s/^title:[[:space:]]*//; s/^"//; s/"$//; p; } }' "$template")
+
+            # --- より後ろを本文として取得
+            raw_body=$(awk 'BEGIN{fm=0} /^---$/{fm++; next} fm>=2{print}' "$template")
+
+            # プレースホルダー置換
+            title=$(echo "$raw_title" | sed "s/{{YEAR}}/$YEAR/g; s/{{MONTH}}/$MONTH/g; s/{{MONTH_JA}}/$MONTH_JA/g")
+            body=$(echo "$raw_body"  | sed "s/{{YEAR}}/$YEAR/g; s/{{MONTH}}/$MONTH/g; s/{{MONTH_JA}}/$MONTH_JA/g")
+
+            echo "Creating draft: $title"
+
+            gh api graphql -f query='
+              mutation($projectId: ID!, $title: String!, $body: String!) {
+                addProjectV2DraftIssue(input: {
+                  projectId: $projectId
+                  title: $title
+                  body: $body
+                }) {
+                  projectItem { id }
+                }
+              }
+            ' -f projectId="$PROJECT_ID" -f title="$title" -f body="$body"
+          done
