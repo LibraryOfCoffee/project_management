@@ -71,6 +71,9 @@ jobs:
             # フロントマター (--- ... ---) からタイトルを取得
             raw_title=$(sed -n '/^---$/,/^---$/{ /^title:/{ s/^title:[[:space:]]*//; s/^"//; s/"$//; p; } }' "$template")
 
+            # フロントマターから assignees (スペース区切りのユーザー名) を取得
+            raw_assignees=$(sed -n '/^---$/,/^---$/{ /^assignees:/{ s/^assignees:[[:space:]]*//; s/^"//; s/"$//; p; } }' "$template")
+
             # --- より後ろを本文として取得
             raw_body=$(awk 'BEGIN{fm=0} /^---$/{fm++; next} fm>=2{print}' "$template")
 
@@ -80,15 +83,33 @@ jobs:
 
             echo "Creating draft: $title"
 
-            gh api graphql -f query='
-              mutation($projectId: ID!, $title: String!, $body: String!) {
-                addProjectV2DraftIssue(input: {
-                  projectId: $projectId
-                  title: $title
-                  body: $body
-                }) {
-                  projectItem { id }
+            # ユーザー名をノード ID に変換して JSON 配列を構築
+            assignee_ids_json="[]"
+            if [ -n "$raw_assignees" ]; then
+              ids=""
+              for username in $raw_assignees; do
+                user_id=$(gh api graphql -f query='query($login: String!) { user(login: $login) { id } }' \
+                  -f login="$username" --jq '.data.user.id')
+                ids="$ids \"$user_id\","
+              done
+              assignee_ids_json="[${ids%,}]"
+            fi
+
+            gh api graphql \
+              -f query='
+                mutation($projectId: ID!, $title: String!, $body: String!, $assigneeIds: [ID!]) {
+                  addProjectV2DraftIssue(input: {
+                    projectId: $projectId
+                    title: $title
+                    body: $body
+                    assigneeIds: $assigneeIds
+                  }) {
+                    projectItem { id }
+                  }
                 }
-              }
-            ' -f projectId="$PROJECT_ID" -f title="$title" -f body="$body"
+              ' \
+              -f projectId="$PROJECT_ID" \
+              -f title="$title" \
+              -f body="$body" \
+              --raw-field "assigneeIds=$assignee_ids_json"
           done
